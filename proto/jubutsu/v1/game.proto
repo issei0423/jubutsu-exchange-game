@@ -1,0 +1,247 @@
+syntax = "proto3";
+
+package jubutsu.v1;
+
+// ============================================================================
+// このファイルは「ワイヤ型」だけを定義する。
+//
+//   - サーバーの内部状態をここに写さないこと。写した時点で protobuf を選んだ
+//     意味がなくなる(CLAUDE.md「なぜ protobuf を選んだか」参照)。
+//   - 隠れうるフィールドは必ず optional を付け、「未設定 = そのプレイヤーには
+//     見えていない」と意味づける。proto3 は 0 と未設定を区別しないため、
+//     optional を忘れると隠したはずの値が 0 として漏れる。
+//   - 所持金や価値は負になり得る。unsigned 型を使わないこと。
+//
+// TODO が付いている箇所は要件定義書末尾の「未定・要検討リスト」に対応する。
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// 基本型
+// ---------------------------------------------------------------------------
+
+// 盤上の領域。**このプレイヤーから見た**呼び方であることに注意(射影済みの値)。
+enum Zone {
+  ZONE_UNSPECIFIED = 0;
+  ZONE_OWN_FIELD = 1; // 自陣
+  ZONE_OPPONENT_FIELD = 2; // 敵陣
+  ZONE_FREE = 3; // フリー地
+}
+
+message Position {
+  Zone zone = 1;
+  // マス番号。中央に近いほど大きい。
+  // TODO: 盤面のマス数は未定(未定リスト #3)。
+  int32 index = 2;
+}
+
+// 進行フェーズ。round = 先攻ターン → 後攻ターン → 予約解決 → drift。
+enum Phase {
+  PHASE_UNSPECIFIED = 0;
+  PHASE_JANKEN = 1; // 先攻・後攻決め
+  PHASE_FIRST_TURN = 2; // 先攻のターン
+  PHASE_SECOND_TURN = 3; // 後攻のターン
+  PHASE_RESOLVE = 4; // 予約をまとめて解決
+  PHASE_DRIFT = 5; // 呪物が流される
+  PHASE_RESULT = 6; // リザルト
+}
+
+// このプレイヤーがその呪物の呪いについて何を知っているか。
+//
+// revealed は「解析したかどうか」の履歴ではなく、**プレイヤーごとの独立フラグ**。
+// 解析以外にも、呪い自身が露見させたり(呪い案 #13 千里眼の発覚)、
+// 逆に既知を未知へ戻したり(#20 忘却)するため、両方向に動く。
+message CurseKnowledge {
+  bool revealed = 1;
+  // revealed のときだけ設定する。
+  // revealed かつ未設定 = 「解析した結果、呪いを持たない呪物だと判明した」。
+  optional string text = 2;
+}
+
+message RelicView {
+  string id = 1;
+  Position position = 2;
+  // 未設定 = このプレイヤーにはまだ価値が見えていない(未鑑定)。
+  // 鑑定されると両プレイヤーに公開される。
+  optional int32 value = 3;
+  CurseKnowledge curse = 4;
+}
+
+message PlayerView {
+  string id = 1;
+  // 未設定 = 呪いで隠されている(呪い案 #11 霧隠れ)。
+  // 相手の所持金は原則見える。**負の値を取り得る。**
+  optional int32 money = 2;
+  // 連続先攻でたまるトークン。3 で発動しリセット。
+  int32 initiative_token = 3;
+  ActionsRemaining actions = 4;
+}
+
+// そのターンに残っている行動回数。
+// 通常は各 1。3トークン発動時は先攻が 0、後攻が 2 になる。
+message ActionsRemaining {
+  int32 trade = 1;
+  int32 appraise = 2;
+  int32 analyze = 3;
+}
+
+// 取引の予約。**自分の予約しかクライアントへ送らない**のが原則。
+// 例外は相手の予約を覗ける呪い(呪い案 #13 千里眼)が効いている場合のみ。
+message Reservation {
+  string relic_id = 1;
+  // その予約で支払う額。フリー地の呪物ならノーコストで 0。
+  // TODO: 敵陣の呪物の金額の決め方は未定(未定リスト #6)。
+  int32 cost = 2;
+}
+
+// ---------------------------------------------------------------------------
+// クライアント → サーバー
+// ---------------------------------------------------------------------------
+
+message ClientCommand {
+  oneof body {
+    TradeCommand trade = 1;
+    AppraiseCommand appraise = 2;
+    AnalyzeCommand analyze = 3;
+    PassCommand pass = 4;
+    ActivateCurseCommand activate_curse = 5;
+    JankenCommand janken = 6;
+  }
+}
+
+message TradeCommand {
+  string relic_id = 1;
+}
+
+message AppraiseCommand {
+  string relic_id = 1;
+}
+
+message AnalyzeCommand {
+  string relic_id = 1;
+}
+
+message PassCommand {}
+
+// 任意発動の呪い(呪い案 #5 席替え)。
+// TODO: ターン内行動として数えるか別枠かは未決定(呪い案 論点 #2)。
+message ActivateCurseCommand {
+  string relic_id = 1;
+  // 効果の対象。対象を取らない呪いでは未設定。
+  optional Position target = 2;
+}
+
+enum Hand {
+  HAND_UNSPECIFIED = 0;
+  HAND_ROCK = 1;
+  HAND_PAPER = 2;
+  HAND_SCISSORS = 3;
+}
+
+// TODO: じゃんけんの実装方式(プレイヤーが手を出す / 自動抽選)は未定
+// (未定リスト #16)。自動抽選になったらこのコマンドごと消える。
+message JankenCommand {
+  Hand hand = 1;
+}
+
+// ---------------------------------------------------------------------------
+// サーバー → クライアント
+// ---------------------------------------------------------------------------
+
+message ServerEvent {
+  oneof body {
+    StateView state = 1;
+    AppraiseResult appraise_result = 2;
+    AnalyzeResult analyze_result = 3;
+    ReservationResult reservation_result = 4;
+    DriftResult drift_result = 5;
+    JankenResult janken_result = 6;
+    CurseRevealed curse_revealed = 7;
+    GameResult game_result = 8;
+    Notice notice = 9;
+  }
+}
+
+// 盤面の全体像。**必ず可視性リゾルバを通した射影**を入れること。
+message StateView {
+  int32 round = 1;
+  Phase phase = 2;
+  // TODO: 1ゲームの round 数は未定(未定リスト #7)。決まるまで未設定を許す。
+  optional int32 total_rounds = 3;
+  PlayerView you = 4;
+  PlayerView opponent = 5;
+  repeated RelicView relics = 6;
+  // 原則として自分の予約のみ。
+  repeated Reservation your_reservations = 7;
+  bool you_have_initiative = 8;
+  // ターンの残り持ち時間(ミリ秒)。
+  // TODO: 持ち時間の長さと時間切れ時の挙動は未定(未定リスト #8 / #15)。
+  optional int32 remaining_time_ms = 9;
+}
+
+// 鑑定の結果。価値は**両プレイヤー**に公開される。
+message AppraiseResult {
+  string relic_id = 1;
+  int32 value = 2;
+}
+
+// 解析の結果。**解析したプレイヤーにしか送らない。**
+message AnalyzeResult {
+  string relic_id = 1;
+  // 未設定 = 呪いを持たない呪物だった。
+  optional string curse_text = 2;
+}
+
+message ReservationResult {
+  repeated ReservationOutcome outcomes = 1;
+}
+
+message ReservationOutcome {
+  string relic_id = 1;
+  string winner_player_id = 2;
+  // 予約が被ってじゃんけんで決まったか。
+  // 無条件で勝ち切る呪い(呪い案 #17 先取権)が働いた場合は false。
+  bool contested = 3;
+}
+
+message DriftResult {
+  repeated RelicMove moves = 1;
+}
+
+message RelicMove {
+  string relic_id = 1;
+  Position from = 2;
+  Position to = 3;
+}
+
+message JankenResult {
+  string winner_player_id = 1;
+  // 各プレイヤーが出した手。自動抽選方式になった場合は空になる。
+  map<string, Hand> hands = 2;
+}
+
+// 呪いが露見した。解析のほか、呪い自身の発覚判定でも発生する(呪い案 #13)。
+// **露見した側の持ち主にも通知する**(知らないと誤認したまま打ち続けるため)。
+message CurseRevealed {
+  string relic_id = 1;
+  // 誰に対して露見したか。
+  string revealed_to_player_id = 2;
+}
+
+message GameResult {
+  // 引き分け(所持金同額)はじゃんけんで決着するため、ここは必ず埋まる。
+  string winner_player_id = 1;
+  map<string, int32> final_money = 2;
+  // 所持金が同額でじゃんけん決着になったか。
+  bool settled_by_janken = 3;
+}
+
+enum NoticeKind {
+  NOTICE_KIND_UNSPECIFIED = 0;
+  NOTICE_KIND_PASS_WARNING = 1; // パスしたときの警告
+  NOTICE_KIND_ACTION_SEALED = 2; // 鑑定・解析が封じられている
+  NOTICE_KIND_OPPONENT_LEFT = 3; // TODO: 回線落ちの扱いは要確認(未定リスト #13)
+}
+
+message Notice {
+  NoticeKind kind = 1;
+}
