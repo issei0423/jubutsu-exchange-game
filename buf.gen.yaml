@@ -1,0 +1,19 @@
+version: v2
+
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/issei0423/jubutsu-exchange-game/server/gen
+
+plugins:
+  # Go (権威サーバー側)
+  - remote: buf.build/protocolbuffers/go
+    out: server/gen
+    opt: paths=source_relative
+
+  # TypeScript (フロント側) — protobuf-es
+  - remote: buf.build/bufbuild/es
+    out: web/src/gen
+    opt:
+      - target=ts

@@ -161,6 +161,15 @@ MVP で **20種類程度**。効果は多彩で、発動タイミングも呪い
 
 - **生成物はリポジトリにコミットする。** buf を入れていなくてもビルドが通る状態を保つ。
   生成されたファイルを手で編集しない。
+
+```bash
+# buf は npm 経由で動く(Go を入れていなくてもよい)。
+npx @bufbuild/buf lint          # 命名規約チェック
+npx @bufbuild/buf format -w     # 整形
+npx @bufbuild/buf breaking --against '.git#branch=main'
+npx @bufbuild/buf generate      # Go/TS を生成(codegen は remote plugin)
+```
+
 - メッセージは `ClientCommand` / `ServerEvent` の2つの封筒にまとめ、
   中身は **`oneof`** で分ける。TS 側で判別可能な直和として扱えるようにするため。
 - 仕様がまだ動くので **`buf lint` と `buf breaking`** を回す。互換性の破壊に自分で気づけるようにしておく。
