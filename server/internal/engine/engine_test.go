@@ -9,6 +9,8 @@ import (
 // 盤: 7行 × 3列。自陣 = Row 0,1 (P0) / Row 5,6 (P1)。フリー = Row 2,3,4。中央 = Row 3。
 func testParams() Params {
 	p := DefaultParams()
+	p.Rows = 7
+	p.FieldDepth = 2
 	p.Cols = 3
 	p.InitialRelics = 0
 	p.TotalRounds = 3

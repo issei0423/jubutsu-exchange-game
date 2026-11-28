@@ -59,11 +59,12 @@ type Params struct {
 }
 
 // DefaultParams は仮の数値一式を返す。プレイテストで差し替える前提。
+// 各値の根拠は リポジトリ直下の 仮決定.md にある。
 func DefaultParams() Params {
 	return Params{
-		Rows:          7, // 自陣2 + フリー3 + 自陣2。中央は index 3
+		Rows:          9, // 自陣3 + フリー3 + 自陣3。中央は index 4(仮決定.md §0 案A)
 		Cols:          5,
-		FieldDepth:    2,
+		FieldDepth:    3,
 		InitialRelics: 10,
 
 		StartingMoney:  100,
